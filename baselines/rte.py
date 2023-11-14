@@ -7,62 +7,58 @@ from datasets import load_dataset
 import random
 import numpy as np
 import time
-import pandas as pd
 
 BATCH_SIZE = 32
-EPOCHS = 3
+EPOCHS = 5
 model_name = "bert-base-uncased"
-train_path = './RTE/train.tsv'
-test_path = './RTE/test.tsv'
+train_path = '/content/train.tsv'
+dev_path = '/content/dev.tsv'
 
 train_df = pd.read_csv(train_path, sep='\t')
-test_df = pd.read_csv(test_path, sep='\t')
+dev_df = pd.read_csv(dev_path, sep='\t')
 
-train_path_new = './RTE/train.csv'
-test_path_new = './RTE/test.csv'
+train_path_new = '/content/train.csv'
+dev_path_new = '/content/dev.csv'
 
 train_df.to_csv(train_path_new, index = False)
-test_df.to_csv(test_path_new, index = False)
+dev_df.to_csv(dev_path_new, index = False)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 dataset = load_dataset('csv', data_files={'train': train_path_new})
-test_dataset = load_dataset('csv', data_files={'test': test_path_new})
+dev_dataset = load_dataset('csv', data_files={'dev': dev_path_new})
 
 tokenizer = BertTokenizer.from_pretrained(model_name)
 
 
 def preprocess_data(examples):
-    return tokenizer(examples['premise'], examples['hypothesis'], padding='max_length',
-                     truncation=True, max_length=256)
+    return tokenizer(examples['sentence1'], examples['sentence2'], padding='max_length',
+                     truncation=True, max_length=128)
 
 
 def label_setter(examples):
-    return {'labels': torch.tensor(1 if examples['label']=="not_entailment" else 0, dtype=torch.long)}
+    return {'labels': torch.tensor(1 if examples['label'] else 0, dtype=torch.long)}
 
 
 train_dataset = dataset['train'].map(preprocess_data, batched=True)
-test_dataset = test_dataset['test'].map(preprocess_data, batched=True)
+dev_dataset = dev_dataset['validation'].map(preprocess_data, batched=True)
 train_dataset = train_dataset.map(label_setter)
-test_dataset = test_dataset.map(label_setter)
+dev_dataset = dev_dataset.map(label_setter)
 
-train_dataset = train_dataset.remove_columns(['premise','hypothesis','label'])
-test_dataset = test_dataset.remove_columns(['premise','hypothesis','label'])
 
 train_dataset.set_format("torch")
-test_dataset.set_format("torch")
+dev_dataset.set_format("torch")
 
-print(test_dataset[2:4])
-print("Preprocessing done")
+
 
 train_dataloader = DataLoader(
     train_dataset,
     sampler=RandomSampler(train_dataset),
     batch_size=BATCH_SIZE)
 
-test_dataloader = DataLoader(
-    test_dataset,
-    sampler=SequentialSampler(test_dataset),
+validation_dataloader = DataLoader(
+    dev_dataset,
+    sampler=SequentialSampler(dev_dataset),
     batch_size=BATCH_SIZE)
 
 model = BertForSequenceClassification.from_pretrained(model_name, num_labels=2, output_attentions=False,
@@ -109,7 +105,7 @@ for epoch in range(EPOCHS):
     total_eval_loss = 0
     correct = 0
     total = 0
-    for batch in test_dataloader:
+    for batch in validation_dataloader:
         input_ids, token_type_ids, attention_mask, labels = batch['input_ids'].to(device), batch['token_type_ids'].to(
             device), batch['attention_mask'].to(device), batch['labels'].to(device)
 
@@ -124,4 +120,4 @@ for epoch in range(EPOCHS):
         total += labels.size(0)
         correct += (predicted == labels).sum().item()
     val_acc = 100 * correct / total
-    print(f'Epoch: {epoch}, Val accuracy: {val_acc}, Val loss: {total_eval_loss/len(test_dataloader)}')
+    print(f'Epoch: {epoch}, Val accuracy: {val_acc}, Val loss: {total_eval_loss/len(validation_dataloader)}')
