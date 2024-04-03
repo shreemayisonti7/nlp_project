@@ -8,6 +8,8 @@ import random
 import numpy as np
 import time
 
+
+
 BATCH_SIZE = 32
 EPOCHS = 5
 model_name = "bert-base-uncased"
